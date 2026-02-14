@@ -1,0 +1,98 @@
+# veRL SFT Training Config for GSM8K
+#
+# Comparable to grpo_gsm8k-qwen1.5b.yaml:
+#   GRPO: 1 epoch × 8 rollouts × 1868 steps = ~60K response updates
+#   SFT:  3 epochs × 1868 steps = ~5604 steps (gold signal is stronger)
+#
+# Usage:
+#   python -m verl.trainer.sft_trainer --config-dir config --config-name sft_gsm8k-qwen1.5b
+
+defaults:
+  - model@model: hf_model
+  - engine@engine: fsdp
+  - optim@optim: fsdp
+  - profiler@profiler: profiler
+  - _self_
+
+# ============================================================
+# Data Configuration
+# ============================================================
+data:
+  train_files: /mnt/data8tb/Documents/project/rlvr_winter/verl-my-rlvr/data/sft_train.parquet
+  val_files: null
+  messages_key: messages
+  train_max_samples: -1
+  val_max_samples: -1
+  # Match GRPO batch size
+  train_batch_size: 4
+  micro_batch_size_per_gpu: 1
+  # Disable dynamic batching to keep batch size predictable
+  use_dynamic_bsz: false
+  max_token_len_per_gpu: 8192
+  # Max sequence length (prompt + response)
+  max_length: 4096
+  truncation: left
+  pad_mode: no_padding
+  custom_cls:
+    path: null
+    name: null
+  use_shm: false
+  apply_chat_template_kwargs: {}
+  ignore_input_ids_mismatch: false
+
+# ============================================================
+# Model Configuration
+# ============================================================
+model:
+  path: /mnt/2data/Documents/safetensors/Qwen_Qwen2.5-1.5B-Instruct
+  enable_gradient_checkpointing: true
+  override_config:
+    max_position_embeddings: 4096
+
+# ============================================================
+# Optimizer Configuration
+# ============================================================
+optim:
+  lr: 5e-7
+  betas: [0.9, 0.999]
+  weight_decay: 0.01
+  clip_grad: 1.0
+  lr_scheduler_type: cosine
+  lr_warmup_steps_ratio: 0.05
+
+# ============================================================
+# Checkpoint Configuration
+# ============================================================
+checkpoint:
+  _target_: verl.trainer.config.CheckpointConfig
+  save_contents: ["model", "hf_model", "optimizer", "extra"]
+  load_contents: ${checkpoint.save_contents}
+
+# ============================================================
+# Trainer Configuration
+# ============================================================
+trainer:
+  total_epochs: 8
+  total_training_steps: null
+  project_name: verl-gsm8k-sft
+  experiment_name: qwen2.5-1.5b-instruct-sft
+  logger:
+    - console
+    - wandb
+  seed: 1
+  nnodes: 1
+  n_gpus_per_node: 1
+  save_freq: 600
+  test_freq: -1
+  resume_mode: disable
+  resume_from_path: null
+  device: cuda
+  default_local_dir: /mnt/data8tb/Documents/project/rlvr_winter/verl-my-rlvr/outputs
+  default_hdfs_dir: null
+  profile_interval: [-1, -1]
+
+# Disable Hydra's auto-generated output directories
+hydra:
+  run:
+    dir: .
+  output_subdir: null

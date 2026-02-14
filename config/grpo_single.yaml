@@ -1,0 +1,166 @@
+# Single-example RLVR loop for debugging/experimentation
+#
+# Trains repeatedly on one hard GSM8K problem (9 reasoning steps, answer=201)
+# "Mark's basketball team scores 25 2 pointers, 8 3 pointers and 10 free throws..."
+#
+# With batch_size=1 and 1 example, each epoch = 1 step.
+# 200 epochs = 200 steps of GRPO on the same problem.
+#
+# Usage:
+#   ./train_grpo.sh grpo_single
+
+defaults:
+  - actor@actor_rollout_ref.actor: dp_actor
+  - data@data: legacy_data
+  - reward_manager@reward_manager
+  - ref@actor_rollout_ref.ref: dp_ref
+  - rollout@actor_rollout_ref.rollout: rollout
+  - model@actor_rollout_ref.model: hf_model
+  - critic@critic: dp_critic
+  - reward_model@reward_model: dp_reward_loop
+  - algorithm@algorithm.rollout_correction: rollout_correction
+  - _self_
+
+# ============================================================
+# Data Configuration
+# ============================================================
+data:
+  train_files: /mnt/data8tb/Documents/project/rlvr_winter/verl-my-rlvr/data/single_rlvr.parquet
+  val_files: /mnt/data8tb/Documents/project/rlvr_winter/verl-my-rlvr/data/gsm8k_test.parquet
+  prompt_key: prompt
+  max_prompt_length: 512
+  max_response_length: 3584
+  # Single example per batch
+  train_batch_size: 1
+  return_raw_input_ids: false
+  truncation: left
+
+# ============================================================
+# Algorithm Configuration (GRPO)
+# ============================================================
+algorithm:
+  adv_estimator: grpo
+  gamma: 1.0
+  lam: 1.0
+  use_kl_in_reward: false
+  norm_adv_by_std_in_grpo: true
+
+# ============================================================
+# Actor + Rollout + Reference Model Configuration
+# ============================================================
+actor_rollout_ref:
+  hybrid_engine: true
+  nccl_timeout: 600
+
+  model:
+    path: /mnt/2data/Documents/safetensors/Qwen_Qwen2.5-1.5B-Instruct
+    enable_gradient_checkpointing: true
+    override_config:
+      max_position_embeddings: 4096
+
+  actor:
+    ppo_mini_batch_size: 1
+    ppo_micro_batch_size_per_gpu: 1
+    ppo_epochs: 1
+    use_kl_loss: false
+    kl_loss_coef: 0.0
+    kl_loss_type: kl
+    clip_ratio: 0.2
+    entropy_coeff: 0.001
+    optim:
+      lr: 5e-7
+      weight_decay: 0.01
+      clip_grad: 1.0
+    checkpoint:
+      save_contents: ['model', 'hf_model', 'extra']
+      load_contents: ${.save_contents}
+
+  ref:
+    log_prob_micro_batch_size_per_gpu: 1
+
+  rollout:
+    name: vllm
+    n: 8
+    temperature: 0.7
+    top_p: 0.95
+    log_prob_micro_batch_size_per_gpu: 1
+    tensor_model_parallel_size: 1
+    gpu_memory_utilization: 0.4
+    max_model_len: 4096
+    layered_summon: false
+    enforce_eager: true
+    free_cache_engine: true
+
+# ============================================================
+# Reward Model Configuration
+# ============================================================
+reward_model:
+  enable: false
+
+custom_reward_function:
+  path: /mnt/data8tb/Documents/project/rlvr_winter/verl-my-rlvr/reward_fn.py
+  name: compute_score
+
+# ============================================================
+# Critic (disabled for GRPO)
+# ============================================================
+critic:
+  enable: false
+
+# ============================================================
+# Trainer Configuration
+# ============================================================
+trainer:
+  # 1 example = 1 step/epoch. Full GRPO does ~5604 steps (1868 × 3 epochs).
+  total_epochs: 2500
+  total_training_steps: null
+  project_name: verl-gsm8k-grpo
+  experiment_name: single-example-gsm8k
+  logger:
+    - console
+    - wandb
+  nnodes: 1
+  n_gpus_per_node: 1
+  save_freq: 500
+  test_freq: 300
+  default_local_dir: /mnt/data8tb/Documents/project/rlvr_winter/verl-my-rlvr/outputs
+  val_before_train: false
+  critic_warmup: 0
+  device: cuda
+  balance_batch: true
+  log_val_generations: 0
+  rollout_data_dir: null
+  validation_data_dir: null
+  esi_redundant_time: 0
+  resume_mode: disable
+  resume_from_path: null
+  val_only: false
+  default_hdfs_dir: null
+  del_local_ckpt_after_load: false
+  max_actor_ckpt_to_keep: null
+  max_critic_ckpt_to_keep: null
+  ray_wait_register_center_timeout: 300
+  use_legacy_worker_impl: auto
+
+# ============================================================
+# Ray Configuration
+# ============================================================
+ray_kwargs:
+  ray_init:
+    num_cpus: null
+  timeline_json_file: null
+
+transfer_queue:
+  enable: false
+
+global_profiler:
+  tool: null
+  steps: null
+  profile_continuous_steps: false
+  save_path: "outputs/profile"
+
+# Disable Hydra's auto-generated output directories
+hydra:
+  run:
+    dir: .
+  output_subdir: null

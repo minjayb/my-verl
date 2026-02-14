@@ -1,0 +1,197 @@
+# veRL GRPO Training Config for GSM8K
+#
+# Based on your TRL config:
+# - 8 generations per prompt
+# - beta (KL coef) = 0.04
+# - learning rate = 1e-6
+# - temperature = 0.7
+#
+# Usage:
+#   python -m verl.trainer.main_ppo --config-path config --config-name grpo_gsm8k
+
+# Use veRL's default config as base
+defaults:
+  - actor@actor_rollout_ref.actor: dp_actor
+  - data@data: legacy_data
+  - reward_manager@reward_manager
+  - ref@actor_rollout_ref.ref: dp_ref
+  - rollout@actor_rollout_ref.rollout: rollout
+  - model@actor_rollout_ref.model: hf_model
+  - critic@critic: dp_critic
+  - reward_model@reward_model: dp_reward_loop
+  - algorithm@algorithm.rollout_correction: rollout_correction
+  - _self_
+
+# ============================================================
+# Data Configuration
+# ============================================================
+data:
+  train_files: /mnt/data8tb/Documents/project/rlvr_winter/verl-my-rlvr/data/train.parquet
+  # Use train file as val file (won't be used since test_freq=-1)
+  val_files: /mnt/data8tb/Documents/project/rlvr_winter/verl-my-rlvr/data/gsm8k_test.parquet
+  prompt_key: prompt
+  # ground_truth is nested inside reward_model dict in the parquet file
+  # Qwen2.5-Math-1.5B: context limit 4096, use most for response
+  max_prompt_length: 512
+  max_response_length: 3584
+  # With multi-GPU, can use much larger batch sizes.
+  # Paper uses 128; adjust based on GPU count and VRAM.
+  train_batch_size: 32
+  return_raw_input_ids: false
+  truncation: left
+
+# ============================================================
+# Algorithm Configuration (GRPO)
+# ============================================================
+algorithm:
+  adv_estimator: grpo
+  gamma: 1.0
+  lam: 1.0
+  use_kl_in_reward: false
+  norm_adv_by_std_in_grpo: true
+
+# ============================================================
+# Actor + Rollout + Reference Model Configuration
+# ============================================================
+actor_rollout_ref:
+  hybrid_engine: true
+  nccl_timeout: 600
+
+  model:
+    # Qwen2.5-1.5B - epoch 2 from first training run
+    path: /mnt/2data/Documents/safetensors/Qwen_Qwen2.5-1.5B-Instruct
+    enable_gradient_checkpointing: true
+    # Override max_position_embeddings to limit KV cache size
+    # vLLM uses this for max_model_len (veRL bug unconditionally overrides config)
+    # Model context limit is 4096
+    override_config:
+      max_position_embeddings: 4096
+
+  actor:
+    # Must be <= train_batch_size. With multi-GPU, each GPU processes mini_batch/n_gpus.
+    ppo_mini_batch_size: 32
+    ppo_micro_batch_size_per_gpu: 2
+    ppo_epochs: 1
+    # KL loss: prevents policy from diverging too far from the reference model.
+    # Paper (One-Shot-RLVR) uses low_var_kl with coef=0.001.
+    # Requires loading reference model (ref) which uses extra VRAM.
+    use_kl_loss: true
+    kl_loss_coef: 0.001
+    kl_loss_type: low_var_kl
+    clip_ratio: 0.2
+    # Entropy bonus: encourages exploration by incentivizing higher per-token entropy.
+    # Paper (One-Shot-RLVR) uses -0.001 coefficient (negative = bonus, subtracted in loss).
+    # This is the default in the paper's verl fork. Improves post-saturation generalization.
+    entropy_coeff: 0.001
+    optim:
+      lr: 5e-7
+      weight_decay: 0.01
+      clip_grad: 1.0
+    checkpoint:
+      save_contents: ['model', 'hf_model', 'extra']
+      load_contents: ${.save_contents}
+
+  ref:
+    log_prob_micro_batch_size_per_gpu: 4
+    fsdp_config:
+      param_offload: false
+
+  rollout:
+    name: vllm
+    n: 8
+    temperature: 0.7
+    top_p: 0.95
+    log_prob_micro_batch_size_per_gpu: 4
+    tensor_model_parallel_size: 1
+    # With multi-GPU + ref model, can be more generous with vLLM cache
+    gpu_memory_utilization: 0.5
+    # Model context limit is 4096
+    max_model_len: 4096
+    layered_summon: false
+    enforce_eager: true
+    # Free KV cache after generation to make room for optimizer
+    free_cache_engine: true
+
+# ============================================================
+# Reward Model Configuration
+# ============================================================
+reward_model:
+  enable: false
+
+custom_reward_function:
+  path: /mnt/data8tb/Documents/project/rlvr_winter/verl-my-rlvr/reward_fn.py
+  name: compute_score
+
+# ============================================================
+# Critic (disabled for GRPO - not needed)
+# ============================================================
+critic:
+  enable: false
+
+# ============================================================
+# Trainer Configuration
+# ============================================================
+trainer:
+  total_epochs: 3
+  total_training_steps: null
+  project_name: verl-gsm8k-grpo
+  experiment_name: qwen2.5-1.5b-instruct-grpo
+  logger:
+    - console
+    - wandb
+  nnodes: 1
+  # Set to 4 for 4x4090, or 6 for 6x3090
+  n_gpus_per_node: 4
+  save_freq: 300
+  test_freq: 300
+  default_local_dir: /mnt/data8tb/Documents/project/rlvr_winter/verl-my-rlvr/outputs
+  val_before_train: false
+  critic_warmup: 0
+  device: cuda
+  balance_batch: true
+  log_val_generations: 0
+  rollout_data_dir: null
+  validation_data_dir: null
+  esi_redundant_time: 0
+  # Resume options:
+  #   resume_mode: "disable" = always start fresh (default)
+  #   resume_mode: "auto" = resume if checkpoints exist in output dir
+  #   resume_from_path: set to checkpoint dir to resume from specific path
+  resume_mode: disable
+  resume_from_path: null
+  val_only: false
+  default_hdfs_dir: null
+  del_local_ckpt_after_load: false
+  max_actor_ckpt_to_keep: null
+  max_critic_ckpt_to_keep: null
+  ray_wait_register_center_timeout: 300
+  use_legacy_worker_impl: auto
+
+# ============================================================
+# Ray Configuration
+# ============================================================
+ray_kwargs:
+  ray_init:
+    num_cpus: null
+  timeline_json_file: null
+
+# ============================================================
+# Transfer Queue (disabled)
+# ============================================================
+transfer_queue:
+  enable: false
+
+# ============================================================
+# Profiler (disabled)
+# ============================================================
+global_profiler:
+  tool: null
+  steps: null
+  profile_continuous_steps: false
+  save_path: "outputs/profile"
+
+# Disable Hydra's auto-generated output directories
+hydra:
+  run:
+    dir: .
+  output_subdir: null
