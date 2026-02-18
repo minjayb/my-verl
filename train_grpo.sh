@@ -1,19 +1,48 @@
 #!/bin/bash
-# Usage: ./train_grpo.sh [config-name]
-# Example: ./train_grpo.sh grpo_gsm8k-qwen1.5b
+# GRPO training for Qwen2.5-1.5B on GSM8K
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/.venv/bin/activate"
-
-# Multi-GPU: set to all available GPUs (e.g. "0,1,2,3" for 4x4090, "0,1,2,3,4,5" for 6x3090)
-# Must match trainer.n_gpus_per_node in config
-export CUDA_VISIBLE_DEVICES=0,1,2,3
-
-CONFIG_NAME="${1:-grpo_gsm8k-qwen1.5b}"
-RUN_DIR="$SCRIPT_DIR/outputs/grpo_$(date +%d-%m_%H%M)"
+export CUDA_VISIBLE_DEVICES=0
 
 PYTHONUNBUFFERED=1 python -m verl.trainer.main_ppo \
-    --config-dir "$SCRIPT_DIR/config" \
-    --config-name "$CONFIG_NAME" \
-    trainer.default_local_dir="$RUN_DIR"
+    algorithm.adv_estimator=grpo \
+    data.train_files="$SCRIPT_DIR/data/train.parquet" \
+    data.val_files="$SCRIPT_DIR/data/gsm8k_test.parquet" \
+    data.train_batch_size=32 \
+    data.max_prompt_length=512 \
+    data.max_response_length=3584 \
+    data.truncation=left \
+    actor_rollout_ref.model.path=/mnt/2data/Documents/safetensors/Qwen_Qwen2.5-1.5B-Instruct \
+    actor_rollout_ref.model.enable_gradient_checkpointing=true \
+    +actor_rollout_ref.model.override_config.max_position_embeddings=4096 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=32 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.actor.use_kl_loss=true \
+    actor_rollout_ref.actor.kl_loss_coef=0.001 \
+    actor_rollout_ref.actor.kl_loss_type=low_var_kl \
+    actor_rollout_ref.actor.entropy_coeff=0.001 \
+    actor_rollout_ref.actor.optim.lr=5e-7 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.ref.fsdp_config.param_offload=true \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.rollout.name=vllm \
+    actor_rollout_ref.rollout.n=8 \
+    actor_rollout_ref.rollout.temperature=0.7 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.3 \
+    actor_rollout_ref.rollout.max_model_len=4096 \
+    actor_rollout_ref.rollout.enforce_eager=true \
+    reward.custom_reward_function.path="$SCRIPT_DIR/reward_fn.py" \
+    reward.custom_reward_function.name=compute_score \
+    critic.enable=false \
+    trainer.total_epochs=3 \
+    trainer.n_gpus_per_node=1 \
+    trainer.save_freq=300 \
+    trainer.test_freq=300 \
+    trainer.val_before_train=false \
+    trainer.default_local_dir="$SCRIPT_DIR/outputs/grpo_$(date +%d-%m_%H%M)" \
+    trainer.project_name=verl-gsm8k-grpo \
+    trainer.experiment_name=qwen2.5-1.5b-instruct-grpo \
+    trainer.resume_mode=disable \
+    "$@"

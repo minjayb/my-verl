@@ -1,5 +1,5 @@
 outputs/
-.venv/
 wandb/
 __pycache__/
 *.log
+verl/

@@ -22,8 +22,8 @@ from pathlib import Path
 
 import pandas as pd
 
-SRC = "/mnt/data8tb/Documents/project/my_bench_harness/data/gsm8k/socratic/train.jsonl"
-DST = "/mnt/data8tb/Documents/project/rlvr_winter/verl-my-rlvr/data/sft_train.parquet"
+SRC = "/mnt/data8tb/Documents/project/my_bench_harness/data/gsm8k/socratic/test.jsonl"
+DST = "/mnt/data8tb/Documents/project/rlvr_winter/verl-my-rlvr/data/sft_gsm8k_test.parquet"
 
 
 def clean_answer(raw_answer: str) -> str:

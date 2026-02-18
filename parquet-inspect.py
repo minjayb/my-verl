@@ -4,11 +4,13 @@ import pyarrow.parquet as pq
 DATA_DIR = "/mnt/data8tb/Documents/project/rlvr_winter/verl-my-rlvr/data"
 
 files = [
-    "gsm8k_test.parquet",
-    "sft_train.parquet",
-    "single_dsr.parquet",
-    "single_rlvr.parquet",
+    # "gsm8k_test.parquet",
+    # "sft_train.parquet",
+    # "single_dsr.parquet",
+    # "single_rlvr.parquet",
     "train.parquet",
+    "gsm8k_test_rlvr.parquet",
+    # "sft_gsm8k_test.parquet",
 ]
 
 for fname in files:

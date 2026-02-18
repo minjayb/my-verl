@@ -132,10 +132,10 @@ OUTPUTS = "/mnt/data8tb/Documents/project/rlvr_winter/verl-my-rlvr/outputs"
 # Edit these to change what gets converted
 # ============================================================
 PATHS = [
-    f"{OUTPUTS}/grpo_09-02_2155-first",
-    f"{OUTPUTS}/grpo-single_09-02_1440-first",
-    f"{OUTPUTS}/grpo-single-dsr_09-02_1759-first",
-    f"{OUTPUTS}/sft_09-02_1146-first",
+    # f"{OUTPUTS}/grpo_09-02_2155-first",
+    # f"{OUTPUTS}/grpo-single_09-02_1440-first",
+    # f"{OUTPUTS}/grpo-single-dsr_09-02_1759-first",
+    f"{OUTPUTS}/sft-gsm8k-test",
 ]
 
 

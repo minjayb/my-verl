@@ -1,20 +1,13 @@
 #!/bin/bash
-# Runs GRPO then SFT training sequentially.
+# Runs SFT (train + test) sequentially.
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "=== Starting SFT training ==="
+echo "=== Starting SFT training (train set) ==="
 "$SCRIPT_DIR/train_sft.sh"
 
-
-echo "=== Starting single-example GRPO (GSM8K) ==="
-"$SCRIPT_DIR/train_single.sh"
-
-echo "=== Starting single-example GRPO (DSR) ==="
-"$SCRIPT_DIR/train_single_dsr.sh"
-
-echo "=== Starting GRPO training ==="
-"$SCRIPT_DIR/train_grpo.sh"
+echo "=== Starting SFT training (test set) ==="
+"$SCRIPT_DIR/train_sft-gsm8k-test.sh"
 
 echo "=== All training complete ==="
